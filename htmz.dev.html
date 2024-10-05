@@ -1,0 +1,109 @@
+<script>
+  function htmz(frame) {
+    // ---------------------------------8<-----------------------------------
+    // No history & Repeat GETs
+    // ----------------------------------------------------------------------
+    // This extension clears the iframe's history from the global history
+    // by removing the iframe from the DOM (but immediately adding it back
+    // for subsequent requests) and URL for a fresh start on next load.
+    if (frame.contentWindow.location.href === "about:blank") return;
+    // --------------------------------->8-----------------------------------
+
+    // ---------------------------------8<-----------------------------------
+    // Multitarget (a.k.a out of band updates)
+    // ----------------------------------------------------------------------
+    // As the HTML spec says that element IDs must be unique,
+    // this extension replaces elements that have corresponding elements in
+    // the response with the same IDs.
+    const mainTargetConsumed = !!frame.contentDocument.querySelector(
+      frame.contentWindow.location.hash || null
+    );
+    const elements = [...frame.contentDocument.querySelectorAll("[id]")];
+    // reverse order so we extract children before parents
+    for (const element of elements.reverse()) {
+      document.getElementById(element.id)?.replaceWith(element);
+    }
+    if (mainTargetConsumed) return;
+    // --------------------------------->8-----------------------------------
+
+    // ---------------------------------8<-----------------------------------
+    // Loader
+    // ----------------------------------------------------------------------
+    // Watch for the 'unload' event as a proxy for load start.
+    // The initial about:blank page also counts when unloading.
+    frame.contentWindow.addEventListener("unload", () => {
+      // Wait for destination location for the hash
+      setTimeout(() => {
+        document
+          .querySelector(frame.contentWindow.location.hash || null)
+          ?.classList.add("loader");
+      });
+    });
+    // --------------------------------->8-----------------------------------
+
+    // ---------------------------------8<-----------------------------------
+    // Unwrap <template>
+    // ----------------------------------------------------------------------
+    // This extension unwraps standalone top-level <template> tags
+    frame.contentDocument
+      .querySelectorAll("head>template") // solo root template tags default to head
+      .forEach((template) =>
+        frame.contentDocument.body.append(template.content)
+      );
+    // --------------------------------->8-----------------------------------
+
+    // ---------------------------------8<-----------------------------------
+    // Swap <template>
+    // ----------------------------------------------------------------------
+    // This extension swaps standalone top-level <template> tags into target element(s)
+    // optionally allowing to preserve the element itself or its children, or delete the element altogether.  
+    frame.contentDocument.querySelectorAll("head>template").forEach(template => {
+      let target = document.querySelector(frame.contentWindow.location.hash || null);
+
+      if (!target) return;
+
+      const slot = template.content.querySelector("slot");
+
+      if (slot) {
+        const copy = target.cloneNode();
+        target.replaceWith(copy);
+        if (!slot.name) {
+          if (!slot.childNodes.length) {
+            slot.replaceWith(target); // <slot></slot>
+          } else {
+            target.replaceChildren(...slot.childNodes); // <slot>...</slot>
+          }
+        } else if (slot.name === "children") {
+          slot.replaceWith(...target.childNodes); // <slot name="children">
+        }
+        target = copy;
+      }
+
+      frame.contentDocument.body.append(template.content);
+    });
+    // --------------------------------->8-----------------------------------
+
+    // The browser automatically scrolls DOM changes into view in response to user interaction.
+    // This delay prevents that, making this is the only case where we don't lean on browser defaults.
+    // Remove setTimeout wrapper to allow automatic scrolling.
+    setTimeout(() => {
+      document
+        .querySelector(frame.contentWindow.location.hash || null)
+        ?.replaceWith(...frame.contentDocument.body.childNodes);
+
+      // ---------------------------------8<-----------------------------------
+      // Repeat GETs
+      // ----------------------------------------------------------------------
+      frame.contentWindow.location.replace("about:blank");
+      // --------------------------------->8-----------------------------------
+
+      // ---------------------------------8<-----------------------------------
+      // No history
+      // ----------------------------------------------------------------------
+      frame.remove();
+      document.body.appendChild(frame);
+      // --------------------------------->8-----------------------------------
+    });
+  }
+</script>
+<iframe hidden name="htmz" onload="window.htmz(this)"></iframe>
