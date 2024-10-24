@@ -86,6 +86,18 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     fi
 fi
 
+# Push current branch to remote repository
+log "Pushing current branch '$current_branch' to remote repository..."
+if ! git push origin "$current_branch"; then
+    log "Error: Failed to push '$current_branch' to remote."
+    # Restore stashed changes if push fails
+    if git stash list | grep -q "Auto stash before safe rebase"; then
+        log "Restoring stashed changes..."
+        git stash pop || log "Warning: Failed to apply stashed changes."
+    fi
+    exit 1
+fi
+
 # Determine the branch to rebase onto
 if [ -n "$rebase_branch" ]; then
     original_branch="$rebase_branch"
@@ -151,3 +163,16 @@ log "Rebase completed successfully."
 
 # Suggest running tests or checks after rebasing
 log "It's recommended to run your project's test suite to ensure everything works as expected."
+
+# Optionally, push the rebased branch to the remote repository
+read -p "Do you want to push the rebased branch '$current_branch' to the remote repository? (y/N): " push_response
+if [[ "$push_response" =~ ^[Yy]$ ]]; then
+    log "Pushing rebased branch '$current_branch' to remote repository..."
+    if ! git push --force-with-lease origin "$current_branch"; then
+        log "Error: Failed to push rebased branch to remote."
+        exit 1
+    fi
+    log "Rebased branch pushed successfully."
+else
+    log "Rebased branch not pushed to remote."
+fi
