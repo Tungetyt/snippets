@@ -43,29 +43,62 @@ class Failure<A, E> implements IResult<A, E> {
 	}
 }
 
-interface CustomError {
-	_tag: `${string}Error`
+type ErrorWithMessage = {
 	message: string
 }
 
-class InvalidJsonError implements CustomError {
+function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
+	return (
+		typeof error === 'object' &&
+		error !== null &&
+		'message' in error &&
+		typeof (error as Record<string, unknown>)["message"] === 'string'
+	)
+}
+
+function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
+	if (isErrorWithMessage(maybeError)) return maybeError
+
+	try {
+		return new Error(JSON.stringify(maybeError))
+	} catch {
+		// fallback in case there's an error stringifying the maybeError
+		// like with circular references for example.
+		return new Error(String(maybeError))
+	}
+}
+
+function getErrorMessage(error: unknown) {
+	return toErrorWithMessage(error).message
+}
+
+abstract class CustomError {
+	_tag: `${string}Error`
+	message: string
+
+    constructor(readonly error: unknown) {
+        this.message = getErrorMessage(error)
+    }
+}
+
+class InvalidJsonError extends CustomError {
 	readonly _tag = 'InvalidJsonError'
-	constructor(public message: string) {}
 }
 
-class RequestFailedError implements CustomError {
+class RequestFailedError extends CustomError {
 	readonly _tag = 'RequestFailedError'
-	constructor(public message: string) {}
 }
 
-class TimeoutError implements CustomError {
+class TimeoutError extends CustomError {
 	readonly _tag = 'TimeoutError'
-	constructor(public message: string) {}
 }
 
-class ValidationError implements CustomError {
+class ValidationError extends CustomError {
 	readonly _tag = 'ValidationError'
-	constructor(public message: string) {}
+}
+
+class UnknownError extends CustomError {
+	readonly _tag = 'UnknownError'
 }
 
 type Fetch = Parameters<typeof fetch>
@@ -107,40 +140,44 @@ async function doFetch<I extends Input, T>(
 		validator: (data: T) => boolean
 	}
 ) {
-	async function execute(attempt: number) {
-		try {
-			const response = await fetch(input, {
-				...init,
-				signal: (timeout && getController(timeout).signal) ?? null
-			})
-			if (!response.ok) throw new Error('Not OK!')
-
-			let data: T
-			try {
-				data = await response.json()
-			} catch (jsonError) {
-				if (attempt < retries) throw jsonError // jump to retry
-				return new Failure(new InvalidJsonError('Invalid JSON response'))
-			}
-
-			if (validator(data)) return new Success(data as T)
-
-			return new Failure(new ValidationError('Failed response validation'))
-		} catch (error) {
-			if ((error as Error).name === 'AbortError')
-				return new Failure(new TimeoutError('Request timed out'))
-
-			if (attempt < retries) {
-				const delayMs = retryBaseDelay * 2 ** attempt
-				await new Promise(resolve => setTimeout(resolve, delayMs))
-				return await execute(attempt + 1)
-			}
-
-			return new Failure(new RequestFailedError('Request failed after retries'))
-		}
-	}
-
-	return execute(0)
+    try {
+        async function execute(attempt: number) {
+            try {
+                const response = await fetch(input, {
+                    ...init,
+                    signal: (timeout && getController(timeout).signal) ?? null
+                })
+                if (!response.ok) throw new Error('Not OK!')
+    
+                let data: T
+                try {
+                    data = await response.json()
+                } catch (jsonError) {
+                    if (attempt < retries) throw jsonError // jump to retry
+                    return new Failure(new InvalidJsonError('Invalid JSON response'))
+                }
+    
+                if (validator(data)) return new Success(data as T)
+    
+                return new Failure(new ValidationError('Failed response validation'))
+            } catch (error) {
+                if ((error as Error).name === 'AbortError')
+                    return new Failure(new TimeoutError('Request timed out'))
+    
+                if (attempt < retries) {
+                    const delayMs = retryBaseDelay * 2 ** attempt
+                    await new Promise(resolve => setTimeout(resolve, delayMs))
+                    return await execute(attempt + 1)
+                }
+    
+                return new Failure(new RequestFailedError('Request failed after retries'))
+            }
+        }
+    
+        return execute(0)
+    } catch(e) {
+        return new Failure(new UnknownError(e))
+    }
 }
 
 // Example usage: Promise chain:
