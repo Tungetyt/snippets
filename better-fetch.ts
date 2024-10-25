@@ -68,7 +68,8 @@ function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
 	}
 }
 
-function getErrorMessage(error: unknown) {
+function getErrorMessage(error?: unknown) {
+    if(!error) return ""
 	return toErrorWithMessage(error).message
 }
 
@@ -76,7 +77,7 @@ abstract class CustomError {
 	protected readonly _tag: `${string}Error`
 	private readonly message: string
 
-    constructor(readonly error: unknown) {
+    constructor(readonly error?: unknown) {
         this.message = getErrorMessage(error)
     }
 }
@@ -154,15 +155,15 @@ async function doFetch<I extends Input, T>(
                     data = await response.json()
                 } catch (jsonError) {
                     if (attempt < retries) throw jsonError // jump to retry
-                    return new Failure(new InvalidJsonError('Invalid JSON response'))
+                    return new Failure(new InvalidJsonError())
                 }
     
-                if (validator(data)) return new Success(data as T)
+                if (validator(data)) return new Success(data)
     
-                return new Failure(new ValidationError('Failed response validation'))
+                return new Failure(new ValidationError())
             } catch (error) {
                 if ((error as Error).name === 'AbortError')
-                    return new Failure(new TimeoutError('Request timed out'))
+                    return new Failure(new TimeoutError())
     
                 if (attempt < retries) {
                     const delayMs = retryBaseDelay * 2 ** attempt
@@ -170,7 +171,7 @@ async function doFetch<I extends Input, T>(
                     return await execute(attempt + 1)
                 }
     
-                return new Failure(new RequestFailedError('Request failed after retries'))
+                return new Failure(new RequestFailedError())
             }
         }
     
