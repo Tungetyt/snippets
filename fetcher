@@ -1,0 +1,108 @@
+// CustomError classes and Result types (as per your existing code)
+
+// fetchWithRetries function
+async function fetchWithRetries<T>(
+  fetcher: () => Promise<T>,
+  {
+    retries = 3,
+    retryBaseDelay = 1000,
+    validator,
+  }: {
+    retries?: number
+    retryBaseDelay?: number
+    validator?: (data: T) => boolean
+  } = {}
+): Promise<Result<T, CustomError>> {
+  async function execute(attempt: number): Promise<Result<T, CustomError>> {
+    try {
+      const data = await fetcher()
+      if (validator && !validator(data)) {
+        return new Failure(new ValidationError('Failed response validation'))
+      }
+      return new Success(data)
+    } catch (error) {
+      if (attempt < retries) {
+        const delayMs = retryBaseDelay * 2 ** attempt
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+        return await execute(attempt + 1)
+      }
+      return new Failure(new RequestFailedError('Request failed after retries'))
+    }
+  }
+  return execute(0)
+}
+
+// useFetchResult hook
+function useFetchResult<T>(
+  fetcher: () => Promise<T>,
+  options?: {
+    retries?: number
+    retryBaseDelay?: number
+    validator?: (data: T) => boolean
+  }
+) {
+  const [isLoading, setIsLoading] = useState(true)
+  const [data, setData] = useState<T | null>(null)
+  const [error, setError] = useState<CustomError | null>(null)
+
+  useEffect(() => {
+    let ignore = false
+    setIsLoading(true)
+
+    fetchWithRetries(fetcher, options)
+      .then(result => {
+        if (!ignore) {
+          if (result.isSuccess()) {
+            setData(result.value)
+            setError(null)
+          } else {
+            setError(result.error)
+            setData(null)
+          }
+          setIsLoading(false)
+        }
+      })
+      .catch(e => {
+        if (!ignore) {
+          setError(new RequestFailedError(e.message))
+          setData(null)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [fetcher, JSON.stringify(options)])
+
+  return { isLoading, data, error }
+}
+
+// Example component using ModelManager
+function ContentFragmentComponent({ pagePath }: { pagePath: string }) {
+  const fetcher = () => ModelManager.getData({ path: pagePath })
+
+  const { isLoading, data, error } = useFetchResult(fetcher, {
+    retries: 3,
+    retryBaseDelay: 1000,
+    validator: (data) => data && data[':items'],
+  })
+
+  if (isLoading) {
+    return <div>Loading...</div>
+  }
+
+  if (error) {
+    return <div>Error: {error.message}</div>
+  }
+
+  const contentFragment = data[':items']['your-content-fragment-component'].data
+
+  return (
+    <div>
+      <h1>{contentFragment.title}</h1>
+      <p>{contentFragment.description}</p>
+      {/* Render other fields as needed */}
+    </div>
+  )
+}
