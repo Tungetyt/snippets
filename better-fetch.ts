@@ -75,10 +75,14 @@ function getErrorMessage(error?: unknown) {
 
 abstract class CustomError {
 	protected abstract readonly _tag: `${string}Error`
-	readonly message: string
+	private readonly _message: string
 
     constructor(readonly error?: unknown) {
-        this.message = getErrorMessage(error)
+        this._message = getErrorMessage(error)
+    }
+
+    get message() {
+        return this._message
     }
 }
 
