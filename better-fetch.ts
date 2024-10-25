@@ -73,8 +73,8 @@ function getErrorMessage(error: unknown) {
 }
 
 abstract class CustomError {
-	_tag: `${string}Error`
-	message: string
+	protected readonly _tag: `${string}Error`
+	private readonly message: string
 
     constructor(readonly error: unknown) {
         this.message = getErrorMessage(error)
@@ -82,23 +82,23 @@ abstract class CustomError {
 }
 
 class InvalidJsonError extends CustomError {
-	readonly _tag = 'InvalidJsonError'
+	protected readonly _tag = 'InvalidJsonError'
 }
 
 class RequestFailedError extends CustomError {
-	readonly _tag = 'RequestFailedError'
+	protected readonly _tag = 'RequestFailedError'
 }
 
 class TimeoutError extends CustomError {
-	readonly _tag = 'TimeoutError'
+	protected readonly _tag = 'TimeoutError'
 }
 
 class ValidationError extends CustomError {
-	readonly _tag = 'ValidationError'
+	protected readonly _tag = 'ValidationError'
 }
 
 class UnknownError extends CustomError {
-	readonly _tag = 'UnknownError'
+	protected readonly _tag = 'UnknownError'
 }
 
 type Fetch = Parameters<typeof fetch>
