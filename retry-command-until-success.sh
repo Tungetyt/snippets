@@ -15,9 +15,9 @@ while true; do
     # Extract the last 10 lines of the output
     last10=$(tail -n 10 "$temp_output")
     
-    # Check if "[ERROR]" exists in the last 10 lines
-    if echo "$last10" | grep -q "[ERROR]"; then
-        error_in_output=0  # Found "[ERROR]"
+    # Check if "ERROR" exists in the last 10 lines
+    if echo "$last10" | grep -q "ERROR"; then
+        error_in_output=0  # Found "ERROR"
     else
         error_in_output=1  # Did not find "[ERROR]"
     fi
