@@ -8,10 +8,11 @@ while true; do
     temp_output=$(mktemp)
     
     # Run the command using 'script' to preserve colors
-    script -q -c "$*" /dev/null 2>&1 | tee "$temp_output"
-    exit_code=${PIPESTATUS[0]}  # Get exit code of the command
+    # For systems without '-c', pass the command as arguments after the file
+    script -q /dev/null "$@" 2>&1 | tee "$temp_output"
+    exit_code=${PIPESTATUS[0]}  # Get exit code of the 'script' command
     
-    # Get the last 10 lines of the output
+    # Extract the last 10 lines of the output
     last10=$(tail -n 10 "$temp_output")
     
     # Check if "[ERROR]" exists in the last 10 lines
@@ -34,7 +35,7 @@ while true; do
             exit 1
         fi
         
-        # Optionally, wait for a moment before retrying
+        # Optionally, wait before retrying
         sleep 1
     else
         # Exit loop if command succeeded and no "[ERROR]" in last 10 lines
