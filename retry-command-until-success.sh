@@ -38,7 +38,13 @@ if ! command_exists osascript; then
     exit 1
 fi
 
-# Now proceed with the main script functionality
+# Store current volume
+current_volume=$(osascript -e "output volume of (get volume settings)")
+
+# Set trap to restore volume and reset terminal on exit
+trap 'osascript -e "set volume output volume $current_volume"; stty sane' EXIT
+
+# Main script functionality
 retries=0
 max_retries=10  # Set a maximum number of retries
 
@@ -82,9 +88,15 @@ echo -e "\nNumber of retries: $retries"
 
 # Play system alert sound based on success or failure
 if [ $success -eq 1 ]; then
+    # Set volume to 100
+    osascript -e "set volume output volume 100"
     # Play success system alert sound (beep twice)
     osascript -e 'beep 2'
 else
+    # Set volume to 100
+    osascript -e "set volume output volume 100"
     # Play failure system alert sound (beep three times)
     osascript -e 'beep 3'
 fi
+
+# The trap will automatically restore the volume and reset the terminal
