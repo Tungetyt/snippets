@@ -48,6 +48,7 @@ public class LocaleModel {
         Locale locale = determineLocaleFromURL();
         if (locale == null) {
             locale = request.getLocale() != null ? request.getLocale() : Locale.getDefault();
+            LOG.debug("Locale not determined from URL. Falling back to request or default locale: {}", locale.toString());
         }
 
         String localeString = !locale.getCountry().isEmpty()
@@ -67,89 +68,45 @@ public class LocaleModel {
         String[] segments = request.getRequestURI().split("/");
 
         // Iterate through each segment to find locale patterns
-        for (int i = 0; i < segments.length; i++) { // Start at 0 to include first segment
-            String segment = segments[i].trim();
+        // Prioritize pair parsing over single segment parsing
+        for (int i = 0; i < segments.length - 1; i++) { // Ensure there's a pair
+            String segment1 = segments[i].trim();
+            String segment2 = segments[i + 1].trim();
 
-            if (segment.isEmpty()) {
+            if (segment1.isEmpty() || segment2.isEmpty()) {
                 continue; // Skip empty segments
             }
 
-            // Attempt to parse single segment as locale
+            // Attempt to parse as country/language pair
+            Locale pairLocale1 = parseLocalePair(segment1, segment2, true);
+            if (pairLocale1 != null) {
+                LOG.debug("Locale determined from segment pair '{}/{}': {}", segment1, segment2, pairLocale1.toString());
+                return pairLocale1;
+            }
+
+            // Attempt to parse as language/country pair
+            Locale pairLocale2 = parseLocalePair(segment1, segment2, false);
+            if (pairLocale2 != null) {
+                LOG.debug("Locale determined from segment pair '{}/{}': {}", segment1, segment2, pairLocale2.toString());
+                return pairLocale2;
+            }
+        }
+
+        // If no pair found, attempt single segment parsing
+        for (int i = 0; i < segments.length; i++) {
+            String segment = segments[i].trim();
+            if (segment.isEmpty()) {
+                continue;
+            }
+
             Locale singleLocale = parseLocaleSegment(segment);
             if (singleLocale != null) {
                 LOG.debug("Locale determined from single segment '{}': {}", segment, singleLocale.toString());
                 return singleLocale;
             }
-
-            // Attempt to parse pair of segments as locale (country/language and language/country)
-            if (i + 1 < segments.length) {
-                String nextSegment = segments[i + 1].trim();
-                if (nextSegment.isEmpty()) {
-                    continue;
-                }
-
-                // Attempt country/language
-                Locale pairLocale1 = parseLocaleSegmentPair(segment, nextSegment, true);
-                if (pairLocale1 != null) {
-                    LOG.debug("Locale determined from segment pair '{}/{}': {}", segment, nextSegment, pairLocale1.toString());
-                    return pairLocale1;
-                }
-
-                // Attempt language/country
-                Locale pairLocale2 = parseLocaleSegmentPair(segment, nextSegment, false);
-                if (pairLocale2 != null) {
-                    LOG.debug("Locale determined from segment pair '{}/{}': {}", segment, nextSegment, pairLocale2.toString());
-                    return pairLocale2;
-                }
-            }
         }
 
         return null; // Locale not determined from URL
-    }
-
-    /**
-     * Parses a single URL segment to extract Locale information.
-     *
-     * @param segment the URL segment representing locale
-     * @return the Locale object or null if the segment doesn't represent a valid locale
-     */
-    private Locale parseLocaleSegment(String segment) {
-        // Normalize segment to handle different separators and cases
-        Locale locale = null;
-
-        // Handle different separators and no separators
-        if (segment.contains("-")) {
-            String[] parts = segment.split("-");
-            if (parts.length >= 2) {
-                String language = parts[0].toLowerCase();
-                String country = parts[1].toUpperCase();
-                if (isValidLocale(language, country)) {
-                    locale = new Locale(language, country);
-                }
-            }
-        } else if (segment.contains("_")) {
-            String[] parts = segment.split("_");
-            if (parts.length >= 2) {
-                String language = parts[0].toLowerCase();
-                String country = parts[1].toUpperCase();
-                if (isValidLocale(language, country)) {
-                    locale = new Locale(language, country);
-                }
-            }
-        } else if (segment.length() == 4) { // e.g., deCH
-            String language = segment.substring(0, 2).toLowerCase();
-            String country = segment.substring(2, 4).toUpperCase();
-            if (isValidLocale(language, country)) {
-                locale = new Locale(language, country);
-            }
-        } else if (segment.length() == 2) { // e.g., en
-            String language = segment.toLowerCase();
-            if (ISO_LANGUAGES.contains(language)) {
-                locale = new Locale(language);
-            }
-        }
-
-        return locale;
     }
 
     /**
@@ -160,25 +117,89 @@ public class LocaleModel {
      * @param isCountryFirst  indicates if the first segment is a country code
      * @return the Locale object or null if the segments don't represent a valid locale
      */
-    private Locale parseLocaleSegmentPair(String segment1, String segment2, boolean isCountryFirst) {
+    private Locale parseLocalePair(String segment1, String segment2, boolean isCountryFirst) {
         String language;
         String country;
 
         if (isCountryFirst) {
             // First segment is country, second is language
-            country = segment1.toUpperCase();
-            language = segment2.toLowerCase();
+            country = normalizeCountryCode(segment1);
+            language = normalizeLanguageCode(segment2);
         } else {
             // First segment is language, second is country
-            language = segment1.toLowerCase();
-            country = segment2.toUpperCase();
+            language = normalizeLanguageCode(segment1);
+            country = normalizeCountryCode(segment2);
         }
 
         if (isValidLocale(language, country)) {
             return new Locale(language, country);
         }
 
-        return null;
+        return null; // Not a valid locale pair
+    }
+
+    /**
+     * Parses a single URL segment to extract Locale information.
+     *
+     * @param segment the URL segment representing locale
+     * @return the Locale object or null if the segment doesn't represent a valid locale
+     */
+    private Locale parseLocaleSegment(String segment) {
+        // Handle different separators and no separators
+        Locale locale = null;
+
+        if (segment.contains("-")) {
+            String[] parts = segment.split("-");
+            if (parts.length == 2) {
+                String language = normalizeLanguageCode(parts[0]);
+                String country = normalizeCountryCode(parts[1]);
+                if (isValidLocale(language, country)) {
+                    locale = new Locale(language, country);
+                }
+            }
+        } else if (segment.contains("_")) {
+            String[] parts = segment.split("_");
+            if (parts.length == 2) {
+                String language = normalizeLanguageCode(parts[0]);
+                String country = normalizeCountryCode(parts[1]);
+                if (isValidLocale(language, country)) {
+                    locale = new Locale(language, country);
+                }
+            }
+        } else if (segment.length() == 4) { // e.g., deCH
+            String language = normalizeLanguageCode(segment.substring(0, 2));
+            String country = normalizeCountryCode(segment.substring(2, 4));
+            if (isValidLocale(language, country)) {
+                locale = new Locale(language, country);
+            }
+        } else if (segment.length() == 2) { // e.g., en
+            String language = normalizeLanguageCode(segment);
+            if (ISO_LANGUAGES.contains(language)) {
+                locale = new Locale(language);
+            }
+        }
+
+        return locale;
+    }
+
+    /**
+     * Normalizes the language code to lowercase.
+     *
+     * @param language the raw language code
+     * @return normalized language code
+     */
+    private String normalizeLanguageCode(String language) {
+        return language.toLowerCase();
+    }
+
+    /**
+     * Normalizes the country code to uppercase.
+     *
+     * @param country the raw country code
+     * @return normalized country code
+     */
+    private String normalizeCountryCode(String country) {
+        return country.toUpperCase();
     }
 
     /**
