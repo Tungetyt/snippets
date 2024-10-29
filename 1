@@ -1,50 +1,170 @@
-package com.example.models;
+package com.yourcompany.aem.models;
 
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.models.annotations.DefaultInjectionStrategy;
+import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.models.annotations.Model;
+import org.apache.sling.models.annotations.DefaultInjectionStrategy;
+
 import javax.inject.Inject;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
 @Model(
-    adaptables = Resource.class,
-    defaultInjectionStrategy = DefaultInjectionStrategy.OPTIONAL,
-    resourceType = "your-project/components/content-fragment"
-)
-public class ContentFragmentModel {
-
-    @Inject
-    private String title;
-
-    @Inject
-    private String description;
-
-    // Getters
-    public String getTitle() {
-        return title;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-}
-
-
-import org.apache.sling.models.annotations.Exporter;
-import org.apache.sling.models.annotations.ExporterOption;
-
-@Model(
-    adaptables = Resource.class,
-    resourceType = "your-project/components/content-fragment",
+    adaptables = SlingHttpServletRequest.class,
     defaultInjectionStrategy = DefaultInjectionStrategy.OPTIONAL
 )
-@Exporter(
-    name = "jackson",
-    extensions = "json",
-    selector = "model",
-    options = {
-        @ExporterOption(name = "SerializationFeature.FAIL_ON_EMPTY_BEANS", value = "false")
+public class LocaleModel {
+
+    @Inject
+    private SlingHttpServletRequest request;
+
+    // Initialize ISO language and country codes
+    private static final Set<String> ISO_LANGUAGES = new HashSet<>(Arrays.asList(Locale.getISOLanguages()));
+    private static final Set<String> ISO_COUNTRIES = new HashSet<>(Arrays.asList(Locale.getISOCountries()));
+
+    /**
+     * Retrieves the current locale in either simple or complex form based on the URL structure.
+     *
+     * @return the locale string (e.g., "en" or "de_CH")
+     */
+    public String getLocale() {
+        String cachedLocale = (String) request.getAttribute("currentLocale");
+        if (cachedLocale != null) {
+            return cachedLocale;
+        }
+
+        // Priority: User Preferred Locale > URL-based Locale > Request Locale > System Default
+        String userPreferredLocale = getUserPreferredLocale();
+        if (userPreferredLocale != null && !userPreferredLocale.isEmpty()) {
+            request.setAttribute("currentLocale", userPreferredLocale);
+            return userPreferredLocale;
+        }
+
+        Locale locale = determineLocaleFromURL();
+        if (locale == null) {
+            locale = request.getLocale() != null ? request.getLocale() : Locale.getDefault();
+        }
+
+        String localeString = !locale.getCountry().isEmpty() 
+            ? locale.getLanguage().toLowerCase() + "_" + locale.getCountry().toUpperCase() 
+            : locale.getLanguage().toLowerCase();
+
+        request.setAttribute("currentLocale", localeString);
+        return localeString;
     }
-)
-public class ContentFragmentModel {
-    // Fields and getters as before
+
+    /**
+     * Determines the locale based on the URL path segments.
+     *
+     * @return the Locale object or null if not determinable from URL
+     */
+    private Locale determineLocaleFromURL() {
+        String[] segments = request.getRequestURI().split("/");
+
+        // Iterate through each segment to find locale patterns
+        for (int i = 1; i < segments.length; i++) { // Start at 1 to skip empty segment before first '/'
+            String segment = segments[i].trim();
+
+            if (segment.isEmpty()) {
+                continue; // Skip empty segments
+            }
+
+            // Normalize and parse the segment
+            Locale locale = parseLocaleSegment(segment);
+            if (locale != null) {
+                return locale;
+            }
+
+            // If not matched, continue to next segment
+        }
+
+        return null; // Locale not determined from URL
+    }
+
+    /**
+     * Parses a URL segment to extract Locale information.
+     *
+     * @param segment the URL segment representing locale
+     * @return the Locale object or null if the segment doesn't represent a valid locale
+     */
+    private Locale parseLocaleSegment(String segment) {
+        // Handle different separators and no separators
+        String language = null;
+        String country = null;
+        String variant = null;
+
+        if (segment.contains("-")) {
+            String[] parts = segment.split("-");
+            if (parts.length >= 3) {
+                language = parts[0].toLowerCase();
+                country = parts[1].toUpperCase();
+                variant = parts[2];
+                if (isValidLocale(language, country)) {
+                    return new Locale(language, country, variant);
+                }
+            } else if (parts.length == 2) {
+                language = parts[0].toLowerCase();
+                country = parts[1].toUpperCase();
+                if (isValidLocale(language, country)) {
+                    return new Locale(language, country);
+                }
+            }
+        } else if (segment.contains("_")) {
+            String[] parts = segment.split("_");
+            if (parts.length >= 3) {
+                language = parts[0].toLowerCase();
+                country = parts[1].toUpperCase();
+                variant = parts[2];
+                if (isValidLocale(language, country)) {
+                    return new Locale(language, country, variant);
+                }
+            } else if (parts.length == 2) {
+                language = parts[0].toLowerCase();
+                country = parts[1].toUpperCase();
+                if (isValidLocale(language, country)) {
+                    return new Locale(language, country);
+                }
+            }
+        } else {
+            // Handle concatenated formats like deCH
+            if (segment.length() == 4) { // e.g., deCH
+                language = segment.substring(0, 2).toLowerCase();
+                country = segment.substring(2, 4).toUpperCase();
+                if (isValidLocale(language, country)) {
+                    return new Locale(language, country);
+                }
+            } else if (segment.length() == 2) { // e.g., en
+                language = segment.toLowerCase();
+                if (ISO_LANGUAGES.contains(language)) {
+                    return new Locale(language);
+                }
+            }
+        }
+
+        return null; // Not a valid locale segment
+    }
+
+    /**
+     * Validates if the language and country codes are valid ISO codes.
+     *
+     * @param language the language code
+     * @param country  the country code
+     * @return true if both are valid, false otherwise
+     */
+    private boolean isValidLocale(String language, String country) {
+        return ISO_LANGUAGES.contains(language) && ISO_COUNTRIES.contains(country);
+    }
+
+    /**
+     * Retrieves the user's preferred locale.
+     *
+     * @return the user's Locale string or null if not set
+     */
+    private String getUserPreferredLocale() {
+        // Implement logic to retrieve user's preferred locale, e.g., from session or user profile
+        // Example placeholder:
+        // return session.getAttribute("preferredLocale");
+        return null; // Placeholder: No user preference implemented
+    }
 }
