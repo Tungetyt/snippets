@@ -3,6 +3,8 @@ package com.yourcompany.aem.models;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.models.annotations.Model;
 import org.apache.sling.models.annotations.DefaultInjectionStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import java.util.Arrays;
@@ -15,6 +17,8 @@ import java.util.Set;
     defaultInjectionStrategy = DefaultInjectionStrategy.OPTIONAL
 )
 public class LocaleModel {
+
+    private static final Logger LOG = LoggerFactory.getLogger(LocaleModel.class);
 
     @Inject
     private SlingHttpServletRequest request;
@@ -46,9 +50,9 @@ public class LocaleModel {
             locale = request.getLocale() != null ? request.getLocale() : Locale.getDefault();
         }
 
-        String localeString = !locale.getCountry().isEmpty() 
-            ? locale.getLanguage().toLowerCase() + "_" + locale.getCountry().toUpperCase() 
-            : locale.getLanguage().toLowerCase();
+        String localeString = !locale.getCountry().isEmpty()
+                ? locale.getLanguage().toLowerCase() + "_" + locale.getCountry().toUpperCase()
+                : locale.getLanguage().toLowerCase();
 
         request.setAttribute("currentLocale", localeString);
         return localeString;
@@ -63,86 +67,118 @@ public class LocaleModel {
         String[] segments = request.getRequestURI().split("/");
 
         // Iterate through each segment to find locale patterns
-        for (int i = 1; i < segments.length; i++) { // Start at 1 to skip empty segment before first '/'
+        for (int i = 0; i < segments.length; i++) { // Start at 0 to include first segment
             String segment = segments[i].trim();
 
             if (segment.isEmpty()) {
                 continue; // Skip empty segments
             }
 
-            // Normalize and parse the segment
-            Locale locale = parseLocaleSegment(segment);
-            if (locale != null) {
-                return locale;
+            // Attempt to parse single segment as locale
+            Locale singleLocale = parseLocaleSegment(segment);
+            if (singleLocale != null) {
+                LOG.debug("Locale determined from single segment '{}': {}", segment, singleLocale.toString());
+                return singleLocale;
             }
 
-            // If not matched, continue to next segment
+            // Attempt to parse pair of segments as locale (country/language and language/country)
+            if (i + 1 < segments.length) {
+                String nextSegment = segments[i + 1].trim();
+                if (nextSegment.isEmpty()) {
+                    continue;
+                }
+
+                // Attempt country/language
+                Locale pairLocale1 = parseLocaleSegmentPair(segment, nextSegment, true);
+                if (pairLocale1 != null) {
+                    LOG.debug("Locale determined from segment pair '{}/{}': {}", segment, nextSegment, pairLocale1.toString());
+                    return pairLocale1;
+                }
+
+                // Attempt language/country
+                Locale pairLocale2 = parseLocaleSegmentPair(segment, nextSegment, false);
+                if (pairLocale2 != null) {
+                    LOG.debug("Locale determined from segment pair '{}/{}': {}", segment, nextSegment, pairLocale2.toString());
+                    return pairLocale2;
+                }
+            }
         }
 
         return null; // Locale not determined from URL
     }
 
     /**
-     * Parses a URL segment to extract Locale information.
+     * Parses a single URL segment to extract Locale information.
      *
      * @param segment the URL segment representing locale
      * @return the Locale object or null if the segment doesn't represent a valid locale
      */
     private Locale parseLocaleSegment(String segment) {
-        // Handle different separators and no separators
-        String language = null;
-        String country = null;
-        String variant = null;
+        // Normalize segment to handle different separators and cases
+        Locale locale = null;
 
+        // Handle different separators and no separators
         if (segment.contains("-")) {
             String[] parts = segment.split("-");
-            if (parts.length >= 3) {
-                language = parts[0].toLowerCase();
-                country = parts[1].toUpperCase();
-                variant = parts[2];
+            if (parts.length >= 2) {
+                String language = parts[0].toLowerCase();
+                String country = parts[1].toUpperCase();
                 if (isValidLocale(language, country)) {
-                    return new Locale(language, country, variant);
-                }
-            } else if (parts.length == 2) {
-                language = parts[0].toLowerCase();
-                country = parts[1].toUpperCase();
-                if (isValidLocale(language, country)) {
-                    return new Locale(language, country);
+                    locale = new Locale(language, country);
                 }
             }
         } else if (segment.contains("_")) {
             String[] parts = segment.split("_");
-            if (parts.length >= 3) {
-                language = parts[0].toLowerCase();
-                country = parts[1].toUpperCase();
-                variant = parts[2];
+            if (parts.length >= 2) {
+                String language = parts[0].toLowerCase();
+                String country = parts[1].toUpperCase();
                 if (isValidLocale(language, country)) {
-                    return new Locale(language, country, variant);
-                }
-            } else if (parts.length == 2) {
-                language = parts[0].toLowerCase();
-                country = parts[1].toUpperCase();
-                if (isValidLocale(language, country)) {
-                    return new Locale(language, country);
+                    locale = new Locale(language, country);
                 }
             }
-        } else {
-            // Handle concatenated formats like deCH
-            if (segment.length() == 4) { // e.g., deCH
-                language = segment.substring(0, 2).toLowerCase();
-                country = segment.substring(2, 4).toUpperCase();
-                if (isValidLocale(language, country)) {
-                    return new Locale(language, country);
-                }
-            } else if (segment.length() == 2) { // e.g., en
-                language = segment.toLowerCase();
-                if (ISO_LANGUAGES.contains(language)) {
-                    return new Locale(language);
-                }
+        } else if (segment.length() == 4) { // e.g., deCH
+            String language = segment.substring(0, 2).toLowerCase();
+            String country = segment.substring(2, 4).toUpperCase();
+            if (isValidLocale(language, country)) {
+                locale = new Locale(language, country);
+            }
+        } else if (segment.length() == 2) { // e.g., en
+            String language = segment.toLowerCase();
+            if (ISO_LANGUAGES.contains(language)) {
+                locale = new Locale(language);
             }
         }
 
-        return null; // Not a valid locale segment
+        return locale;
+    }
+
+    /**
+     * Parses a pair of URL segments to extract Locale information.
+     *
+     * @param segment1        the first URL segment
+     * @param segment2        the second URL segment
+     * @param isCountryFirst  indicates if the first segment is a country code
+     * @return the Locale object or null if the segments don't represent a valid locale
+     */
+    private Locale parseLocaleSegmentPair(String segment1, String segment2, boolean isCountryFirst) {
+        String language;
+        String country;
+
+        if (isCountryFirst) {
+            // First segment is country, second is language
+            country = segment1.toUpperCase();
+            language = segment2.toLowerCase();
+        } else {
+            // First segment is language, second is country
+            language = segment1.toLowerCase();
+            country = segment2.toUpperCase();
+        }
+
+        if (isValidLocale(language, country)) {
+            return new Locale(language, country);
+        }
+
+        return null;
     }
 
     /**
