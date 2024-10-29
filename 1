@@ -87,46 +87,56 @@ public class LocaleModel {
     private Locale determineLocaleFromURL() {
         String[] segments = request.getRequestURI().split("/");
 
-        // Iterate through each segment to find locale patterns
-        // Prioritize pair parsing (country/language and language/country) over single segment parsing
+        LOG.debug("URL Segments: {}", Arrays.toString(segments));
+
+        // Iterate through each pair of consecutive segments to find a valid locale pair
         for (int i = 0; i < segments.length - 1; i++) { // Ensure there's a pair
             String segment1 = segments[i].trim();
             String segment2 = segments[i + 1].trim();
 
             if (segment1.isEmpty() || segment2.isEmpty()) {
+                LOG.debug("Skipping empty segments at positions {} and {}", i, i + 1);
                 continue; // Skip empty segments
             }
+
+            LOG.debug("Evaluating segment pair: '{}/{}'", segment1, segment2);
 
             // Attempt to parse as country/language pair
             Locale pairLocale1 = parseLocalePair(segment1, segment2, true);
             if (pairLocale1 != null) {
-                LOG.debug("Locale determined from segment pair '{}/{}' as country/language: {}", segment1, segment2, pairLocale1.toString());
+                LOG.debug("Valid locale pair found (country/language): '{}/{}' -> {}", segment1, segment2, pairLocale1.toString());
                 return pairLocale1;
             }
 
             // Attempt to parse as language/country pair
             Locale pairLocale2 = parseLocalePair(segment1, segment2, false);
             if (pairLocale2 != null) {
-                LOG.debug("Locale determined from segment pair '{}/{}' as language/country: {}", segment1, segment2, pairLocale2.toString());
+                LOG.debug("Valid locale pair found (language/country): '{}/{}' -> {}", segment1, segment2, pairLocale2.toString());
                 return pairLocale2;
             }
         }
 
         // If no valid pair is found, attempt single segment parsing
+        LOG.debug("No valid locale pairs found. Attempting single segment parsing.");
+
         for (String segment : segments) {
+            segment = segment.trim();
             if (segment.isEmpty()) {
+                LOG.debug("Skipping empty segment.");
                 continue; // Skip empty segments
             }
 
+            LOG.debug("Evaluating single segment: '{}'", segment);
+
             Locale singleLocale = parseLocaleSegment(segment);
             if (singleLocale != null) {
-                LOG.debug("Locale determined from single segment '{}' as language: {}", segment, singleLocale.toString());
+                LOG.debug("Valid locale found from single segment '{}': {}", segment, singleLocale.toString());
                 return singleLocale;
             }
         }
 
         // Locale not determined from URL
-        LOG.debug("No valid locale patterns found in URL.");
+        LOG.debug("No valid locale patterns found in URL segments.");
         return null;
     }
 
@@ -152,10 +162,13 @@ public class LocaleModel {
             country = normalizeCountryCode(segment2);
         }
 
+        LOG.debug("Parsed Locale Pair - Language: '{}', Country: '{}'", language, country);
+
         if (isValidLocale(language, country)) {
             return new Locale(language, country);
         }
 
+        LOG.debug("Invalid locale pair: Language '{}', Country '{}'", language, country);
         return null; // Not a valid locale pair
     }
 
@@ -198,6 +211,12 @@ public class LocaleModel {
             if (ISO_LANGUAGES.contains(language)) {
                 locale = new Locale(language);
             }
+        }
+
+        if (locale != null) {
+            LOG.debug("Valid locale parsed from single segment '{}': {}", segment, locale.toString());
+        } else {
+            LOG.debug("Invalid or unrecognized single segment '{}'.", segment);
         }
 
         return locale;
