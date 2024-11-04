@@ -4,34 +4,42 @@
 set -e
 set -o pipefail
 
-# Log file for capturing the script's output
+# Default log file
 LOGFILE="git_rebase_safe.log"
 
 # Function to log messages with timestamps
 log() {
-    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") $1" | tee -a "$LOGFILE"
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%S%Z") $1" | tee -a "$LOGFILE"
 }
 
 # Usage message
 usage() {
-    echo "Usage: $0 [options] [rebase_branch]"
+    echo "Usage: $0 [options]"
     echo
     echo "Options:"
-    echo "  -d, --dry-run    Perform a dry run without making any changes."
-    echo "  -h, --help       Show this help message."
+    echo "  -b, --base-branch BRANCH   Specify the base branch to rebase onto (default is 'develop')."
+    echo "  -d, --dry-run              Perform a dry run without making any changes."
+    echo "  -h, --help                 Show this help message."
     echo
-    echo "Arguments:"
-    echo "  rebase_branch    (Optional) The branch to rebase onto. Defaults to 'origin/develop'."
     exit 1
 }
 
 # Default values
 dry_run=false
-rebase_branch=""
+base_branch="develop"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -b|--base-branch)
+            if [[ -n $2 ]]; then
+                base_branch="$2"
+                shift 2
+            else
+                echo "Error: --base-branch requires a branch name."
+                usage
+            fi
+            ;;
         -d|--dry-run)
             dry_run=true
             shift
@@ -40,27 +48,15 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         *)
-            if [ -z "$rebase_branch" ]; then
-                rebase_branch="$1"
-                shift
-            else
-                echo "Error: Unknown argument '$1'"
-                usage
-            fi
+            echo "Error: Unknown argument '$1'"
+            usage
             ;;
     esac
 done
 
-# Fetch updates from the remote repository
-log "Fetching from remote repository..."
-if ! git fetch --all --prune; then
-    log "Error: 'git fetch' failed."
-    exit 1
-fi
-
 # Get the name of the current branch
 current_branch=$(git rev-parse --abbrev-ref HEAD)
-if [ -z "$current_branch" ]; then
+if [ -z "$current_branch" ] || [ "$current_branch" == "HEAD" ]; then
     log "Error: Unable to determine the current branch."
     exit 1
 fi
@@ -68,7 +64,6 @@ log "Current branch is '$current_branch'."
 
 # Generate a UTC timestamp
 timestamp=$(date -u +"%Y%m%d%H%M%S")
-
 # Create a backup of the current branch with a timestamp suffix
 backup_branch="${current_branch}_backup_${timestamp}"
 log "Creating backup branch '$backup_branch'."
@@ -86,71 +81,104 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     fi
 fi
 
-# Push current branch to remote repository
-log "Pushing current branch '$current_branch' to remote repository..."
-if ! git push origin "$current_branch"; then
-    log "Error: Failed to push '$current_branch' to remote."
-    # Restore stashed changes if push fails
-    if git stash list | grep -q "Auto stash before safe rebase"; then
-        log "Restoring stashed changes..."
-        git stash pop || log "Warning: Failed to apply stashed changes."
-    fi
+# Fetch updates from the remote repository
+log "Fetching from remote repository..."
+if ! git fetch --all --prune; then
+    log "Error: 'git fetch' failed."
     exit 1
 fi
 
-# Determine the branch to rebase onto
-if [ -n "$rebase_branch" ]; then
-    original_branch="$rebase_branch"
-    log "Rebasing onto specified branch '$original_branch'."
-else
-    # Attempt to find upstream branch
-    original_branch=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "")
-    if [ -z "$original_branch" ]; then
-        original_branch="origin/develop"
-        log "No upstream branch found. Defaulting to '$original_branch'."
+# Build the list of upstream branches
+build_upstream_list() {
+    local branch="$1"
+    local upstream_list=()
+    local visited=()
+
+    while true; do
+        # Get the upstream (tracking) branch
+        upstream=$(git rev-parse --abbrev-ref "$branch"@{upstream} 2>/dev/null || true)
+
+        if [ -z "$upstream" ]; then
+            # If no upstream, use the base branch specified
+            if [ "$branch" != "$base_branch" ]; then
+                upstream="$base_branch"
+            else
+                break
+            fi
+        fi
+
+        # Remove remote prefix if present
+        upstream="${upstream#origin/}"
+
+        # Prevent infinite loops
+        if [[ " ${visited[@]} " =~ " $upstream " ]]; then
+            log "Warning: Detected a loop in branch hierarchy. Stopping traversal."
+            break
+        fi
+
+        upstream_list+=("$upstream")
+        visited+=("$upstream")
+        branch="$upstream"
+
+        if [ "$branch" == "$base_branch" ]; then
+            break
+        fi
+    done
+
+    # Reverse the list to have the base branch first
+    echo "${upstream_list[@]}" | awk '{for(i=NF;i>0;i--)printf "%s ",$i;print""}'
+}
+
+# Get the list of upstream branches
+log "Building list of upstream branches..."
+upstream_branches=($(build_upstream_list "$current_branch"))
+log "Upstream branches: ${upstream_branches[*]}"
+
+# Update local references of upstream branches
+for branch in "${upstream_branches[@]}"; do
+    remote_branch="origin/$branch"
+    if git show-ref --verify --quiet "refs/remotes/$remote_branch"; then
+        log "Updating local reference of '$branch' from '$remote_branch'."
+        if ! git fetch origin "$branch:$branch"; then
+            log "Error: Failed to update local branch '$branch' from '$remote_branch'."
+            exit 1
+        fi
     else
-        log "Upstream branch is '$original_branch'."
+        log "No remote counterpart for '$branch'. Skipping update."
     fi
+done
+
+# Perform the rebase of current branch onto the updated upstream chain
+log "Rebasing current branch '$current_branch' onto updated upstream branches."
+if ! git checkout "$current_branch"; then
+    log "Error: Failed to checkout the current branch '$current_branch'."
+    exit 1
 fi
+
+# Build the rebase command
+rebase_onto="${upstream_branches[0]}"
+for branch in "${upstream_branches[@]:1}"; do
+    rebase_onto="$branch"
+done
 
 # Perform dry run if requested
 if [ "$dry_run" = true ]; then
-    log "Performing a dry run rebase of '$current_branch' onto '$original_branch'."
-    if ! git rebase --dry-run "$original_branch"; then
-        log "Error: Dry run rebase failed."
-        # Restore stashed changes after dry run
-        if git stash list | grep -q "Auto stash before safe rebase"; then
-            log "Restoring stashed changes..."
-            git stash pop || log "Warning: Failed to apply stashed changes."
-        fi
+    log "Performing a dry run rebase of '$current_branch' onto '$rebase_onto'."
+    if ! git rebase --dry-run "$rebase_onto"; then
+        log "Error: Dry run rebase of '$current_branch' onto '$rebase_onto' failed."
         exit 1
     else
-        log "Dry run rebase completed successfully. No changes were made."
-        # Restore stashed changes after dry run
-        if git stash list | grep -q "Auto stash before safe rebase"; then
-            log "Restoring stashed changes..."
-            if ! git stash pop; then
-                log "Error: Failed to apply stashed changes."
-                exit 1
-            fi
-        fi
-        exit 0
+        log "Dry run rebase successful."
+    fi
+else
+    log "Rebasing '$current_branch' onto '$rebase_onto'."
+    if ! git rebase "$rebase_onto"; then
+        log "Error: Rebase of '$current_branch' onto '$rebase_onto' failed."
+        exit 1
     fi
 fi
 
-# Perform the rebase operation
-log "Rebasing '$current_branch' onto '$original_branch'."
-if ! git rebase "$original_branch"; then
-    log "Error: Rebase failed. You can recover using the backup branch '$backup_branch'."
-    # Restore stashed changes if rebase fails
-    if git stash list | grep -q "Auto stash before safe rebase"; then
-        log "Restoring stashed changes..."
-        git stash pop || log "Warning: Failed to apply stashed changes."
-    fi
-    exit 1
-fi
-
-# Restore stashed changes after a successful rebase
+# Restore stashed changes after rebasing
 if git stash list | grep -q "Auto stash before safe rebase"; then
     log "Restoring stashed changes..."
     if ! git stash pop; then
@@ -159,20 +187,31 @@ if git stash list | grep -q "Auto stash before safe rebase"; then
     fi
 fi
 
-log "Rebase completed successfully."
+log "Rebase of '$current_branch' completed successfully."
 
 # Suggest running tests or checks after rebasing
 log "It's recommended to run your project's test suite to ensure everything works as expected."
 
-# Optionally, push the rebased branch to the remote repository
-read -p "Do you want to push the rebased branch '$current_branch' to the remote repository? (y/N): " push_response
-if [[ "$push_response" =~ ^[Yy]$ ]]; then
-    log "Pushing rebased branch '$current_branch' to remote repository..."
-    if ! git push --force-with-lease origin "$current_branch"; then
-        log "Error: Failed to push rebased branch to remote."
-        exit 1
-    fi
-    log "Rebased branch pushed successfully."
-else
-    log "Rebased branch not pushed to remote."
-fi
+# Optionally, push the current rebased branch to the remote repository
+while true; do
+    read -p "Do you want to push the rebased current branch '$current_branch' to the remote repository? (y/N): " push_response
+    push_response=${push_response:-N}
+    case $push_response in
+        [Yy]* )
+            log "Pushing rebased branch '$current_branch' to remote repository..."
+            if ! git push --force-with-lease origin "$current_branch"; then
+                log "Error: Failed to push rebased branch '$current_branch' to remote."
+                exit 1
+            fi
+            log "Rebased branch '$current_branch' pushed successfully."
+            break
+            ;;
+        [Nn]* )
+            log "Rebased branch not pushed to remote."
+            break
+            ;;
+        * )
+            echo "Please answer yes or no."
+            ;;
+    esac
+done
