@@ -17,7 +17,7 @@ usage() {
     echo "Usage: $0 [options]"
     echo
     echo "Options:"
-    echo "  -b, --base-branch BRANCH   Specify the base branch to rebase onto (default is 'develop')."
+    echo "  -b, --base-branch BRANCH   Specify the base branch to rebase onto (default is 'origin/develop')."
     echo "  -d, --dry-run              Perform a dry run without making any changes."
     echo "  -h, --help                 Show this help message."
     echo
@@ -26,7 +26,7 @@ usage() {
 
 # Default values
 dry_run=false
-base_branch="develop"
+base_branch="origin/develop"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -64,6 +64,7 @@ log "Current branch is '$current_branch'."
 
 # Generate a UTC timestamp
 timestamp=$(date -u +"%Y%m%d%H%M%S")
+
 # Create a backup of the current branch with a timestamp suffix
 backup_branch="${current_branch}_backup_${timestamp}"
 log "Creating backup branch '$backup_branch'."
@@ -88,92 +89,39 @@ if ! git fetch --all --prune; then
     exit 1
 fi
 
-# Build the list of upstream branches
-build_upstream_list() {
-    local branch="$1"
-    local upstream_list=()
-    local visited=()
-
-    while true; do
-        # Get the upstream (tracking) branch
-        upstream=$(git rev-parse --abbrev-ref "$branch"@{upstream} 2>/dev/null || true)
-
-        if [ -z "$upstream" ]; then
-            # If no upstream, use the base branch specified
-            if [ "$branch" != "$base_branch" ]; then
-                upstream="$base_branch"
-            else
-                break
-            fi
+# Rebase onto the remote counterpart of the current branch
+remote_branch="origin/$current_branch"
+if git show-ref --verify --quiet "refs/remotes/$remote_branch"; then
+    log "Rebasing '$current_branch' onto its remote counterpart '$remote_branch'."
+    if [ "$dry_run" = true ]; then
+        if ! git rebase --dry-run "$remote_branch"; then
+            log "Error: Dry run rebase onto '$remote_branch' failed."
+            exit 1
+        else
+            log "Dry run rebase onto '$remote_branch' successful."
         fi
-
-        # Remove remote prefix if present
-        upstream="${upstream#origin/}"
-
-        # Prevent infinite loops
-        if [[ " ${visited[@]} " =~ " $upstream " ]]; then
-            log "Warning: Detected a loop in branch hierarchy. Stopping traversal."
-            break
-        fi
-
-        upstream_list+=("$upstream")
-        visited+=("$upstream")
-        branch="$upstream"
-
-        if [ "$branch" == "$base_branch" ]; then
-            break
-        fi
-    done
-
-    # Reverse the list to have the base branch first
-    echo "${upstream_list[@]}" | awk '{for(i=NF;i>0;i--)printf "%s ",$i;print""}'
-}
-
-# Get the list of upstream branches
-log "Building list of upstream branches..."
-upstream_branches=($(build_upstream_list "$current_branch"))
-log "Upstream branches: ${upstream_branches[*]}"
-
-# Update local references of upstream branches
-for branch in "${upstream_branches[@]}"; do
-    remote_branch="origin/$branch"
-    if git show-ref --verify --quiet "refs/remotes/$remote_branch"; then
-        log "Updating local reference of '$branch' from '$remote_branch'."
-        if ! git fetch origin "$branch:$branch"; then
-            log "Error: Failed to update local branch '$branch' from '$remote_branch'."
+    else
+        if ! git rebase "$remote_branch"; then
+            log "Error: Rebase onto '$remote_branch' failed."
             exit 1
         fi
-    else
-        log "No remote counterpart for '$branch'. Skipping update."
-    fi
-done
-
-# Perform the rebase of current branch onto the updated upstream chain
-log "Rebasing current branch '$current_branch' onto updated upstream branches."
-if ! git checkout "$current_branch"; then
-    log "Error: Failed to checkout the current branch '$current_branch'."
-    exit 1
-fi
-
-# Build the rebase command
-rebase_onto="${upstream_branches[0]}"
-for branch in "${upstream_branches[@]:1}"; do
-    rebase_onto="$branch"
-done
-
-# Perform dry run if requested
-if [ "$dry_run" = true ]; then
-    log "Performing a dry run rebase of '$current_branch' onto '$rebase_onto'."
-    if ! git rebase --dry-run "$rebase_onto"; then
-        log "Error: Dry run rebase of '$current_branch' onto '$rebase_onto' failed."
-        exit 1
-    else
-        log "Dry run rebase successful."
     fi
 else
-    log "Rebasing '$current_branch' onto '$rebase_onto'."
-    if ! git rebase "$rebase_onto"; then
-        log "Error: Rebase of '$current_branch' onto '$rebase_onto' failed."
+    log "No remote counterpart for '$current_branch'. Skipping rebase onto remote."
+fi
+
+# Rebase onto the specified base branch
+log "Rebasing '$current_branch' onto base branch '$base_branch'."
+if [ "$dry_run" = true ]; then
+    if ! git rebase --dry-run "$base_branch"; then
+        log "Error: Dry run rebase onto '$base_branch' failed."
+        exit 1
+    else
+        log "Dry run rebase onto '$base_branch' successful."
+    fi
+else
+    if ! git rebase "$base_branch"; then
+        log "Error: Rebase onto '$base_branch' failed."
         exit 1
     fi
 fi
