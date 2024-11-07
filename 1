@@ -1,52 +1,155 @@
-import javax.inject.Inject;
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.models.annotations.Model;
+package com.example.aem.services.impl;
+
+import org.osgi.service.component.annotations.Component;
+import com.example.aem.services.PageLocaleService;
+import org.apache.sling.api.SlingHttpServletRequest;
 import com.day.cq.wcm.api.Page;
+import com.day.cq.wcm.api.PageManager;
+
 import java.util.Locale;
 
-@Model(adaptables = Resource.class)
-public class MyComponentModel {
+@Component(service = PageLocaleService.class)
+public class PageLocaleServiceImpl implements PageLocaleService {
 
-    // Inject the current page
-    @Inject
-    private Page currentPage;
-
-    public String getPageLanguage() {
-        if (currentPage != null) {
-            // Retrieve the locale of the page
-            Locale locale = currentPage.getLanguage(false);
-            if (locale != null) {
-                // Return the language code (e.g., "en", "fr")
-                return locale.getLanguage();
+    @Override
+    public String getPageLocale(SlingHttpServletRequest request) {
+        if (request != null) {
+            PageManager pageManager = request.getResourceResolver().adaptTo(PageManager.class);
+            if (pageManager != null) {
+                Page currentPage = pageManager.getContainingPage(request.getResource());
+                return getPageLocale(currentPage);
             }
         }
-        return null; // or a default value if the language is not set
+        return null;
+    }
+
+    @Override
+    public String getPageLocale(Page currentPage) {
+        if (currentPage != null) {
+            Locale locale = currentPage.getLanguage(false);
+            if (locale != null) {
+                return locale.toString(); // e.g., "fr_CA"
+            }
+        }
+        return null;
     }
 }
 
 
+
+
+package com.example.aem.models;
+
 import javax.inject.Inject;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.models.annotations.Model;
-import com.day.cq.wcm.api.Page;
-import com.day.cq.wcm.api.PageManager;
-import java.util.Locale;
+import com.example.aem.services.PageLocaleService;
+import org.apache.sling.models.annotations.injectorspecific.Self;
 
 @Model(adaptables = SlingHttpServletRequest.class)
-public class MyComponentModel {
+public class PageLocaleModel {
 
-    @Inject
+    @Self
     private SlingHttpServletRequest request;
 
-    public String getPageLanguage() {
-        PageManager pageManager = request.getResourceResolver().adaptTo(PageManager.class);
-        Page currentPage = pageManager.getContainingPage(request.getResource());
-        if (currentPage != null) {
-            Locale locale = currentPage.getLanguage(false);
-            if (locale != null) {
-                return locale.getLanguage();
-            }
-        }
-        return null;
+    @Inject
+    private PageLocaleService pageLocaleService;
+
+    public String getPageLocale() {
+        return pageLocaleService.getPageLocale(request);
+    }
+}
+
+
+
+package com.example.aem.services.impl;
+
+import com.example.aem.services.PageLocaleService;
+import org.apache.sling.api.SlingHttpServletRequest;
+import org.apache.sling.api.resource.ResourceResolver;
+import com.day.cq.wcm.api.PageManager;
+import com.day.cq.wcm.api.Page;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
+
+import java.util.Locale;
+
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.when;
+
+@RunWith(MockitoJUnitRunner.class)
+public class PageLocaleServiceImplTest {
+
+    private PageLocaleService pageLocaleService;
+
+    @Mock
+    private SlingHttpServletRequest request;
+
+    @Mock
+    private ResourceResolver resourceResolver;
+
+    @Mock
+    private PageManager pageManager;
+
+    @Mock
+    private Page currentPage;
+
+    @Before
+    public void setUp() {
+        pageLocaleService = new PageLocaleServiceImpl();
+
+        when(request.getResourceResolver()).thenReturn(resourceResolver);
+        when(resourceResolver.adaptTo(PageManager.class)).thenReturn(pageManager);
+        when(pageManager.getContainingPage(Mockito.any())).thenReturn(currentPage);
+    }
+
+    @Test
+    public void testGetPageLocale_withValidLocale() {
+        Locale locale = new Locale("fr", "CA");
+        when(currentPage.getLanguage(false)).thenReturn(locale);
+
+        String pageLocale = pageLocaleService.getPageLocale(request);
+
+        assertEquals("fr_CA", pageLocale);
+    }
+
+    @Test
+    public void testGetPageLocale_withNoLocale() {
+        when(currentPage.getLanguage(false)).thenReturn(null);
+
+        String pageLocale = pageLocaleService.getPageLocale(request);
+
+        assertEquals(null, pageLocale);
+    }
+
+    @Test
+    public void testGetPageLocale_withNullPage() {
+        when(pageManager.getContainingPage(Mockito.any())).thenReturn(null);
+
+        String pageLocale = pageLocaleService.getPageLocale(request);
+
+        assertEquals(null, pageLocale);
+    }
+
+    @Test
+    public void testGetPageLocale_withNullRequest() {
+        String pageLocale = pageLocaleService.getPageLocale((SlingHttpServletRequest) null);
+
+        assertEquals(null, pageLocale);
+    }
+
+    @Test
+    public void testGetPageLocale_withPageObject() {
+        Locale locale = new Locale("en", "US");
+        when(currentPage.getLanguage(false)).thenReturn(locale);
+
+        String pageLocale = pageLocaleService.getPageLocale(currentPage);
+
+        assertEquals("en_US", pageLocale);
     }
 }
