@@ -1,267 +1,52 @@
-package com.yourcompany.aem.models;
-
-import org.apache.sling.api.SlingHttpServletRequest;
+import javax.inject.Inject;
+import org.apache.sling.api.resource.Resource;
 import org.apache.sling.models.annotations.Model;
-import org.apache.sling.models.annotations.DefaultInjectionStrategy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.day.cq.wcm.api.Page;
+import java.util.Locale;
+
+@Model(adaptables = Resource.class)
+public class MyComponentModel {
+
+    // Inject the current page
+    @Inject
+    private Page currentPage;
+
+    public String getPageLanguage() {
+        if (currentPage != null) {
+            // Retrieve the locale of the page
+            Locale locale = currentPage.getLanguage(false);
+            if (locale != null) {
+                // Return the language code (e.g., "en", "fr")
+                return locale.getLanguage();
+            }
+        }
+        return null; // or a default value if the language is not set
+    }
+}
+
 
 import javax.inject.Inject;
-import java.util.Arrays;
-import java.util.HashSet;
+import org.apache.sling.api.SlingHttpServletRequest;
+import org.apache.sling.models.annotations.Model;
+import com.day.cq.wcm.api.Page;
+import com.day.cq.wcm.api.PageManager;
 import java.util.Locale;
-import java.util.Set;
 
-@Model(
-    adaptables = SlingHttpServletRequest.class,
-    defaultInjectionStrategy = DefaultInjectionStrategy.OPTIONAL
-)
-public class LocaleModel {
-
-    private static final Logger LOG = LoggerFactory.getLogger(LocaleModel.class);
+@Model(adaptables = SlingHttpServletRequest.class)
+public class MyComponentModel {
 
     @Inject
     private SlingHttpServletRequest request;
 
-    // Initialize ISO language and country codes
-    private static final Set<String> ISO_LANGUAGES = new HashSet<>(Arrays.asList(Locale.getISOLanguages()));
-    private static final Set<String> ISO_COUNTRIES = new HashSet<>(Arrays.asList(Locale.getISOCountries()));
-
-    /**
-     * Retrieves the current locale in either simple or complex form based on the URL structure.
-     *
-     * @return the locale string (e.g., "en" or "de_CH")
-     */
-    public String getLocale() {
-        // Check if locale is already cached in the request
-        String cachedLocale = (String) request.getAttribute("currentLocale");
-        if (cachedLocale != null) {
-            LOG.debug("Locale retrieved from cache: {}", cachedLocale);
-            return cachedLocale;
-        }
-
-        // Priority: User Preferred Locale > URL-based Locale > Request Locale > System Default
-        String userPreferredLocale = getUserPreferredLocale();
-        if (userPreferredLocale != null && !userPreferredLocale.isEmpty()) {
-            LOG.debug("User preferred locale found: {}", userPreferredLocale);
-            request.setAttribute("currentLocale", userPreferredLocale);
-            return userPreferredLocale;
-        }
-
-        // Attempt to determine locale from URL
-        Locale localeFromURL = determineLocaleFromURL();
-        if (localeFromURL != null) {
-            String localeString = formatLocale(localeFromURL);
-            LOG.debug("Locale determined from URL: {}", localeString);
-            request.setAttribute("currentLocale", localeString);
-            return localeString;
-        }
-
-        // Fallback to request's locale or system default
-        Locale fallbackLocale = (request.getLocale() != null) ? request.getLocale() : Locale.getDefault();
-        String fallbackLocaleString = formatLocale(fallbackLocale);
-        LOG.debug("Locale not determined from URL. Falling back to: {}", fallbackLocaleString);
-        request.setAttribute("currentLocale", fallbackLocaleString);
-        return fallbackLocaleString;
-    }
-
-    /**
-     * Formats the Locale object into a string with language in lowercase and country in uppercase.
-     *
-     * @param locale the Locale object
-     * @return formatted locale string (e.g., "en", "de_CH")
-     */
-    private String formatLocale(Locale locale) {
-        if (!locale.getCountry().isEmpty()) {
-            return locale.getLanguage().toLowerCase() + "_" + locale.getCountry().toUpperCase();
-        } else {
-            return locale.getLanguage().toLowerCase();
-        }
-    }
-
-    /**
-     * Determines the locale based on the entire URL path segments.
-     *
-     * @return the Locale object or null if not determinable from URL
-     */
-    private Locale determineLocaleFromURL() {
-        String[] segments = request.getRequestURI().split("/");
-
-        LOG.debug("URL Segments: {}", Arrays.toString(segments));
-
-        // Iterate through each pair of consecutive segments to find a valid locale pair
-        for (int i = 0; i < segments.length - 1; i++) { // Ensure there's a pair
-            String segment1 = segments[i].trim();
-            String segment2 = segments[i + 1].trim();
-
-            if (segment1.isEmpty() || segment2.isEmpty()) {
-                LOG.debug("Skipping empty segments at positions {} and {}", i, i + 1);
-                continue; // Skip empty segments
-            }
-
-            LOG.debug("Evaluating segment pair: '{}/{}'", segment1, segment2);
-
-            // Attempt to parse as country/language pair
-            Locale pairLocale1 = parseLocalePair(segment1, segment2, true);
-            if (pairLocale1 != null) {
-                LOG.debug("Valid locale pair found (country/language): '{}/{}' -> {}", segment1, segment2, pairLocale1.toString());
-                return pairLocale1;
-            }
-
-            // Attempt to parse as language/country pair
-            Locale pairLocale2 = parseLocalePair(segment1, segment2, false);
-            if (pairLocale2 != null) {
-                LOG.debug("Valid locale pair found (language/country): '{}/{}' -> {}", segment1, segment2, pairLocale2.toString());
-                return pairLocale2;
+    public String getPageLanguage() {
+        PageManager pageManager = request.getResourceResolver().adaptTo(PageManager.class);
+        Page currentPage = pageManager.getContainingPage(request.getResource());
+        if (currentPage != null) {
+            Locale locale = currentPage.getLanguage(false);
+            if (locale != null) {
+                return locale.getLanguage();
             }
         }
-
-        // If no valid pair is found, attempt single segment parsing
-        LOG.debug("No valid locale pairs found. Attempting single segment parsing.");
-
-        for (String segment : segments) {
-            segment = segment.trim();
-            if (segment.isEmpty()) {
-                LOG.debug("Skipping empty segment.");
-                continue; // Skip empty segments
-            }
-
-            LOG.debug("Evaluating single segment: '{}'", segment);
-
-            Locale singleLocale = parseLocaleSegment(segment);
-            if (singleLocale != null) {
-                LOG.debug("Valid locale found from single segment '{}': {}", segment, singleLocale.toString());
-                return singleLocale;
-            }
-        }
-
-        // Locale not determined from URL
-        LOG.debug("No valid locale patterns found in URL segments.");
         return null;
-    }
-
-    /**
-     * Parses a pair of URL segments to extract Locale information.
-     *
-     * @param segment1        the first URL segment
-     * @param segment2        the second URL segment
-     * @param isCountryFirst  indicates if the first segment is a country code
-     * @return the Locale object or null if the segments don't represent a valid locale
-     */
-    private Locale parseLocalePair(String segment1, String segment2, boolean isCountryFirst) {
-        String language;
-        String country;
-
-        if (isCountryFirst) {
-            // First segment is country, second is language
-            country = normalizeCountryCode(segment1);
-            language = normalizeLanguageCode(segment2);
-        } else {
-            // First segment is language, second is country
-            language = normalizeLanguageCode(segment1);
-            country = normalizeCountryCode(segment2);
-        }
-
-        LOG.debug("Parsed Locale Pair - Language: '{}', Country: '{}'", language, country);
-
-        if (isValidLocale(language, country)) {
-            return new Locale(language, country);
-        }
-
-        LOG.debug("Invalid locale pair: Language '{}', Country '{}'", language, country);
-        return null; // Not a valid locale pair
-    }
-
-    /**
-     * Parses a single URL segment to extract Locale information.
-     *
-     * @param segment the URL segment representing locale
-     * @return the Locale object or null if the segment doesn't represent a valid locale
-     */
-    private Locale parseLocaleSegment(String segment) {
-        // Handle different separators and no separators
-        Locale locale = null;
-
-        if (segment.contains("-")) {
-            String[] parts = segment.split("-");
-            if (parts.length == 2) {
-                String language = normalizeLanguageCode(parts[0]);
-                String country = normalizeCountryCode(parts[1]);
-                if (isValidLocale(language, country)) {
-                    locale = new Locale(language, country);
-                }
-            }
-        } else if (segment.contains("_")) {
-            String[] parts = segment.split("_");
-            if (parts.length == 2) {
-                String language = normalizeLanguageCode(parts[0]);
-                String country = normalizeCountryCode(parts[1]);
-                if (isValidLocale(language, country)) {
-                    locale = new Locale(language, country);
-                }
-            }
-        } else if (segment.length() == 4) { // e.g., deCH
-            String language = normalizeLanguageCode(segment.substring(0, 2));
-            String country = normalizeCountryCode(segment.substring(2, 4));
-            if (isValidLocale(language, country)) {
-                locale = new Locale(language, country);
-            }
-        } else if (segment.length() == 2) { // e.g., en
-            String language = normalizeLanguageCode(segment);
-            if (ISO_LANGUAGES.contains(language)) {
-                locale = new Locale(language);
-            }
-        }
-
-        if (locale != null) {
-            LOG.debug("Valid locale parsed from single segment '{}': {}", segment, locale.toString());
-        } else {
-            LOG.debug("Invalid or unrecognized single segment '{}'.", segment);
-        }
-
-        return locale;
-    }
-
-    /**
-     * Normalizes the language code to lowercase.
-     *
-     * @param language the raw language code
-     * @return normalized language code
-     */
-    private String normalizeLanguageCode(String language) {
-        return language.toLowerCase();
-    }
-
-    /**
-     * Normalizes the country code to uppercase.
-     *
-     * @param country the raw country code
-     * @return normalized country code
-     */
-    private String normalizeCountryCode(String country) {
-        return country.toUpperCase();
-    }
-
-    /**
-     * Validates if the language and country codes are valid ISO codes.
-     *
-     * @param language the language code
-     * @param country  the country code
-     * @return true if both are valid, false otherwise
-     */
-    private boolean isValidLocale(String language, String country) {
-        return ISO_LANGUAGES.contains(language) && ISO_COUNTRIES.contains(country);
-    }
-
-    /**
-     * Retrieves the user's preferred locale.
-     *
-     * @return the user's Locale string or null if not set
-     */
-    private String getUserPreferredLocale() {
-        // Implement logic to retrieve user's preferred locale, e.g., from session or user profile
-        // Example placeholder:
-        // return session.getAttribute("preferredLocale");
-        return null; // Placeholder: No user preference implemented
     }
 }
