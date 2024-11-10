@@ -1,107 +1,25 @@
-package com.example.aem.models;
-
-import javax.inject.Inject;
-
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.models.annotations.Model;
-import org.apache.sling.models.annotations.injectorspecific.SlingObject;
-
-import com.day.cq.wcm.api.Page;
-import com.day.cq.wcm.api.PageManager;
-
 import java.util.Locale;
 
-@Model(adaptables = Resource.class)
-public class PageLocaleModel {
-
-    private final String pageLocale;
-
-    @Inject
-    public PageLocaleModel(@SlingObject Resource resource, @SlingObject PageManager pageManager) {
-        Page currentPage = pageManager.getContainingPage(resource);
-        if (currentPage != null) {
-            Locale locale = currentPage.getLanguage(false);
-            this.pageLocale = (locale != null) ? locale.toString() : null;
-        } else {
-            this.pageLocale = null;
+public class LocaleValidator {
+    public static boolean isValidLocale(String localeStr) {
+        if (localeStr == null || !localeStr.matches("^[a-z]{2}_[A-Z]{2}$")) {
+            return false; // Ensure format "language_COUNTRY"
         }
+
+        String[] parts = localeStr.split("_");
+        String language = parts[0];
+        String country = parts[1];
+        Locale locale = new Locale(language, country);
+
+        // Check if the language and country are valid ISO codes
+        return Locale.getAvailableLocales() != null &&
+               !locale.getDisplayCountry().isEmpty() &&
+               !locale.getDisplayLanguage().isEmpty();
     }
-
-    public String getPageLocale() {
-        return pageLocale;
-    }
-}
-
-
-
-package com.example.aem.models;
-
-import javax.inject.Inject;
-
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.models.annotations.Model;
-
-@Model(adaptables = Resource.class)
-public class AnotherModel {
-
-    private final PageLocaleModel pageLocaleModel;
-
-    @Inject
-    public AnotherModel(Resource resource) {
-        this.pageLocaleModel = resource.adaptTo(PageLocaleModel.class);
-    }
-
-    public String getPageLocale() {
-        return pageLocaleModel != null ? pageLocaleModel.getPageLocale() : null;
-    }
-}
-
-
-package com.example.aem.models;
-
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.api.resource.ResourceResolver;
-
-import com.day.cq.wcm.api.PageManager;
-import com.day.cq.wcm.api.Page;
-
-import org.junit.Before;
-import org.junit.Test;
-
-
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
-import java.util.Locale;
-
-public class PageLocaleModelTest {
-
-    private PageLocaleModel pageLocaleModel;
-    private Resource resource;
-    private PageManager pageManager;
-    private Page currentPage;
-
-    @Before
-    public void setUp() {
-        resource = mock(Resource.class);
-        ResourceResolver resourceResolver = mock(ResourceResolver.class);
-        when(resource.getResourceResolver()).thenReturn(resourceResolver);
-
-        pageManager = mock(PageManager.class);
-        when(resourceResolver.adaptTo(PageManager.class)).thenReturn(pageManager);
-
-        currentPage = mock(Page.class);
-        when(pageManager.getContainingPage(resource)).thenReturn(currentPage);
-
-        Locale locale = new Locale("fr", "CA");
-        when(currentPage.getLanguage(false)).thenReturn(locale);
-
-        pageLocaleModel = new PageLocaleModel(resource, pageManager);
-    }
-
-    @Test
-    public void testGetPageLocale() {
-        String locale = pageLocaleModel.getPageLocale();
-        assertEquals("fr_CA", locale);
+    
+    public static void main(String[] args) {
+        System.out.println(isValidLocale("en_US")); // true
+        System.out.println(isValidLocale("en_XX")); // false
+        System.out.println(isValidLocale("xx_US")); // false
     }
 }
