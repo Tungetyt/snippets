@@ -1,12 +1,15 @@
+import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import com.adobe.cq.dam.cfm.ContentFragment;
-import com.adobe.cq.dam.cfm.ContentFragmentManager;
 import com.adobe.cq.dam.cfm.ContentElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 @Component(service = YourService.class)
 public class YourService {
@@ -20,14 +23,16 @@ public class YourService {
         ResourceResolver resourceResolver = null;
         try {
             // Obtain a ResourceResolver with appropriate privileges
-            resourceResolver = resolverFactory.getServiceResourceResolver(null);
+            Map<String, Object> authInfo = new HashMap<>();
+            authInfo.put(ResourceResolverFactory.SUBSERVICE, "your-service-user");
+            resourceResolver = resolverFactory.getServiceResourceResolver(authInfo);
 
-            // Adapt to ContentFragmentManager
-            ContentFragmentManager fragmentManager = resourceResolver.adaptTo(ContentFragmentManager.class);
+            // Get the Resource at the Content Fragment path
+            Resource cfResource = resourceResolver.getResource(cfPath);
 
-            if (fragmentManager != null) {
-                // Retrieve the ContentFragment
-                ContentFragment contentFragment = fragmentManager.getFragment(cfPath, 0);
+            if (cfResource != null) {
+                // Adapt the Resource to a ContentFragment
+                ContentFragment contentFragment = cfResource.adaptTo(ContentFragment.class);
 
                 if (contentFragment != null) {
                     // Access elements within the ContentFragment
@@ -35,16 +40,16 @@ public class YourService {
                     while (elements.hasNext()) {
                         ContentElement element = elements.next();
                         String elementName = element.getName();
-                        String elementValue = element.getContent();
+                        String elementValue = element.getValue().getString();
 
                         // Process the content as needed
                         log.info("Element Name: {}, Element Value: {}", elementName, elementValue);
                     }
                 } else {
-                    log.warn("Content Fragment not found at path: {}", cfPath);
+                    log.warn("Resource at path {} is not a Content Fragment", cfPath);
                 }
             } else {
-                log.error("Unable to adapt ResourceResolver to ContentFragmentManager");
+                log.warn("Resource not found at path: {}", cfPath);
             }
         } catch (Exception e) {
             log.error("Error retrieving content fragment content", e);
