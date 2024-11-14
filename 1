@@ -1,62 +1,40 @@
-import org.apache.sling.api.resource.Resource;
-import org.apache.sling.api.resource.ResourceResolver;
-import org.apache.sling.api.resource.ResourceResolverFactory;
-import org.osgi.service.component.annotations.Component;
-import org.osgi.service.component.annotations.Reference;
-import com.adobe.cq.dam.cfm.ContentFragment;
+package com.example.core.utils;
+
 import com.adobe.cq.dam.cfm.ContentElement;
+import com.adobe.cq.dam.cfm.ContentFragment;
+import org.apache.sling.api.resource.*;
+import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 
-@Component(service = YourService.class)
-public class YourService {
+import java.util.*;
 
-    private static final Logger log = LoggerFactory.getLogger(YourService.class);
+@Component(service = ContentFragmentUtil.class, immediate = true)
+public class ContentFragmentUtil {
 
-    @Reference
-    private ResourceResolverFactory resolverFactory;
+    private static final Logger log = LoggerFactory.getLogger(ContentFragmentUtil.class);
 
-    public void getContentFragmentContent(String cfPath) {
-        ResourceResolver resourceResolver = null;
-        try {
-            // Obtain a ResourceResolver with appropriate privileges
-            Map<String, Object> authInfo = new HashMap<>();
-            authInfo.put(ResourceResolverFactory.SUBSERVICE, "your-service-user");
-            resourceResolver = resolverFactory.getServiceResourceResolver(authInfo);
-
-            // Get the Resource at the Content Fragment path
-            Resource cfResource = resourceResolver.getResource(cfPath);
-
+    public Map<String, String> getContentFragmentElements(ResourceResolver resourceResolver, String contentFragmentPath) {
+        Map<String, String> elementsMap = new HashMap<>();
+        if (resourceResolver != null && contentFragmentPath != null && !contentFragmentPath.isEmpty()) {
+            Resource cfResource = resourceResolver.getResource(contentFragmentPath);
             if (cfResource != null) {
-                // Adapt the Resource to a ContentFragment
                 ContentFragment contentFragment = cfResource.adaptTo(ContentFragment.class);
-
                 if (contentFragment != null) {
-                    // Access elements within the ContentFragment
                     Iterator<ContentElement> elements = contentFragment.getElements();
                     while (elements.hasNext()) {
                         ContentElement element = elements.next();
-                        String elementName = element.getName();
-                        String elementValue = element.getValue().getString();
-
-                        // Process the content as needed
-                        log.info("Element Name: {}, Element Value: {}", elementName, elementValue);
+                        elementsMap.put(element.getName(), element.getValue().getString());
                     }
                 } else {
-                    log.warn("Resource at path {} is not a Content Fragment", cfPath);
+                    log.warn("Resource at path {} is not a Content Fragment", contentFragmentPath);
                 }
             } else {
-                log.warn("Resource not found at path: {}", cfPath);
+                log.warn("Resource not found at path: {}", contentFragmentPath);
             }
-        } catch (Exception e) {
-            log.error("Error retrieving content fragment content", e);
-        } finally {
-            if (resourceResolver != null && resourceResolver.isLive()) {
-                resourceResolver.close();
-            }
+        } else {
+            log.warn("ResourceResolver is null or Content Fragment path is null or empty");
         }
+        return elementsMap;
     }
 }
