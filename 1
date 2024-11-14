@@ -1,25 +1,57 @@
-import java.util.Locale;
+import org.apache.sling.api.resource.ResourceResolver;
+import org.apache.sling.api.resource.ResourceResolverFactory;
+import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+import com.adobe.cq.dam.cfm.ContentFragment;
+import com.adobe.cq.dam.cfm.ContentFragmentManager;
+import com.adobe.cq.dam.cfm.ContentElement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class LocaleValidator {
-    public static boolean isValidLocale(String localeStr) {
-        if (localeStr == null || !localeStr.matches("^[a-z]{2}_[A-Z]{2}$")) {
-            return false; // Ensure format "language_COUNTRY"
+@Component(service = YourService.class)
+public class YourService {
+
+    private static final Logger log = LoggerFactory.getLogger(YourService.class);
+
+    @Reference
+    private ResourceResolverFactory resolverFactory;
+
+    public void getContentFragmentContent(String cfPath) {
+        ResourceResolver resourceResolver = null;
+        try {
+            // Obtain a ResourceResolver with appropriate privileges
+            resourceResolver = resolverFactory.getServiceResourceResolver(null);
+
+            // Adapt to ContentFragmentManager
+            ContentFragmentManager fragmentManager = resourceResolver.adaptTo(ContentFragmentManager.class);
+
+            if (fragmentManager != null) {
+                // Retrieve the ContentFragment
+                ContentFragment contentFragment = fragmentManager.getFragment(cfPath, 0);
+
+                if (contentFragment != null) {
+                    // Access elements within the ContentFragment
+                    Iterator<ContentElement> elements = contentFragment.getElements();
+                    while (elements.hasNext()) {
+                        ContentElement element = elements.next();
+                        String elementName = element.getName();
+                        String elementValue = element.getContent();
+
+                        // Process the content as needed
+                        log.info("Element Name: {}, Element Value: {}", elementName, elementValue);
+                    }
+                } else {
+                    log.warn("Content Fragment not found at path: {}", cfPath);
+                }
+            } else {
+                log.error("Unable to adapt ResourceResolver to ContentFragmentManager");
+            }
+        } catch (Exception e) {
+            log.error("Error retrieving content fragment content", e);
+        } finally {
+            if (resourceResolver != null && resourceResolver.isLive()) {
+                resourceResolver.close();
+            }
         }
-
-        String[] parts = localeStr.split("_");
-        String language = parts[0];
-        String country = parts[1];
-        Locale locale = new Locale(language, country);
-
-        // Check if the language and country are valid ISO codes
-        return Locale.getAvailableLocales() != null &&
-               !locale.getDisplayCountry().isEmpty() &&
-               !locale.getDisplayLanguage().isEmpty();
-    }
-    
-    public static void main(String[] args) {
-        System.out.println(isValidLocale("en_US")); // true
-        System.out.println(isValidLocale("en_XX")); // false
-        System.out.println(isValidLocale("xx_US")); // false
     }
 }
