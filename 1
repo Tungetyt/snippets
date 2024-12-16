@@ -1,0 +1,10 @@
+@Model(adaptables = Resource.class, 
+       defaultInjectionStrategy = DefaultInjectionStrategy.OPTIONAL)
+public class PagePropertiesModel {
+  @Inject
+  private String someKey
+
+  public String getSomeKey() {
+    return someKey
+  }
+}
