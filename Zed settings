@@ -1,0 +1,42 @@
+{
+        "assistant": {
+                "default_model": {
+                        "provider": "zed.dev",
+                        "model": "claude-3-5-sonnet-latest"
+                },
+                "version": "2"
+        },
+        "ui_font_size": 12,
+        "buffer_font_size": 12,
+        "autosave": "on_focus_change",
+        "buffer_line_height": {
+                "custom": 1
+        },
+        "languages": {
+                "TypeScript": {
+                        "code_actions_on_format": {
+                                "source.organizeImports": true,
+                                "source.fixAll.eslint": true
+                        }
+                },
+                "TSX": {
+                        "code_actions_on_format": {
+                                "source.organizeImports": true,
+                                "source.fixAll.eslint": true
+                        }
+                }
+        },
+        "format_on_save": "off",
+        "hard_tabs": true,
+        "tab_size": 2,
+        "telemetry": {
+                "diagnostics": false,
+                "metrics": false
+        },
+        "terminal": {
+                "dock": "right",
+                "copy_on_select": true,
+                "line_height": "standard",
+                "font_family": "Zed Plex Mono"
+        }
+}
